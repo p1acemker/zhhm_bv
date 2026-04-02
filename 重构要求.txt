@@ -1,0 +1,54 @@
+请对项目进行重构，使代码更清晰、可维护、可测试，但必须保持对外行为不变（CLI & API 不变）。
+
+【现有功能必须保持】
+1) CLI:
+- get <by1>：查询指定 by1 的货描
+- list [limit]：列出所有 by1
+- search "<text>"：向量搜索 by1
+- preview <prefix>：预览前缀匹配候选
+- import <by1> [strategy]：智能导入，strategy=most_references|highest_score|combined（默认 most_references）
+- batch-import <by1>...：批量智能导入
+- add <by1> "<edesc>"：添加货描，自动去重（by1存在则追加不重复；不存在则创建）
+- update <by1> "<edesc>" [--append]：替换或追加
+- delete <by1>：删除 by1
+
+2) FastAPI:
+- python api.py 启动服务
+- 已有路由、方法、参数字段名保持一致（不得 breaking）
+
+【重构目标（按优先级）】
+P0 分层：
+- CLI/API 只做参数解析与返回格式，不包含业务逻辑
+- 业务逻辑集中在 EdscService（或同名 service）
+- 存储访问集中在 Repo（DB/历史订单/引用数）
+- 向量检索集中在 QdrantVectorStore
+- embedding 统一封装为 Embedder 接口（可函数适配，但要统一返回维度）
+
+P1 清晰：
+- 统一命名：edesc/desc/by1 字段命名一致
+- 把“去重/清洗/分组/ID生成”抽到 utils
+- 把“导入策略 most_references/highest_score/combined”抽到 import_strategy 模块，写清楚每种策略的打分公式与排序规则
+
+P2 可靠：
+- 添加 embedding_dim 校验，维度不匹配抛出明确异常
+- search 的去重逻辑明确：child topN -> group by parent_id -> 取父块 topK
+- 所有写入支持 batch upsert（可配置 batch_size）
+- 日志替换 print，支持 LOG_LEVEL
+
+P3 可测试：
+- 单测至少覆盖：
+  - add 去重逻辑
+  - import strategy 的选择结果
+  - search 聚合与阈值逻辑（可 mock qdrant client）
+
+【交付物】
+- 重构后的代码
+- docs/API.md：接口说明（CLI+API），每条命令/每个路由给示例
+- scripts/demo_import_and_search.py：可跑 demo（可用 fake embedding）
+- CHANGELOG.md：说明哪些文件迁移、兼容方式
+
+【验收】
+- 原 CLI 命令都能运行（同样输出结构/语义）
+- FastAPI /docs 可打开，示例 curl 能跑
+- demo 能跑通导入与搜索
+- tests 通过
