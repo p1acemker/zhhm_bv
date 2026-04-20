@@ -1,0 +1,7 @@
+curl --location 'http://localhost:8000/edesc/search' \
+--header 'Content-Type: application/json' \
+--data '{
+    "query": "DI WAFER FIRE RISER BV,DI+EPDM DISC, 4\"/DN100",
+    "top_k": 10,
+    "customerName": "ANUGRAHA TECH SOLUTI"
+}'

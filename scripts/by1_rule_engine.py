@@ -547,6 +547,7 @@ def _expand_suffixes(base_code: str, features: dict, base_score: float) -> list:
                 results[code] = total
 
     # 第3步: KNOWN_BY1 中所有以此 base_code 或其伴随码开头的编码
+    _ensure_known_by1()
     for bc in all_bases:
         m = 1.0 if bc == base_code else 0.5
         for known in KNOWN_BY1:
@@ -664,8 +665,11 @@ def run_test_top10(csv_path: str):
 # Stage 4: 校验
 # ============================================================
 
-# 已知的 60 个 by1 编码集合
-KNOWN_BY1 = {
+# 已知的 by1 编码集合 (从向量库加载, CSV 回退)
+KNOWN_BY1 = None  # 延迟初始化
+
+# CSV 硬编码回退 (向量库不可用时使用)
+_FALLBACK_BY1 = {
     'D341X4', 'D341X-R4', 'D341X3-16QB1', 'D341X7',
     'D342X', 'D342X4', 'D342X4C', 'D342X4C2-1', 'D342X71', 'D342XC',
     'D343H',
@@ -682,6 +686,52 @@ KNOWN_BY1 = {
     'XD381XE', 'XD381XG',
 }
 
+
+_BY1_PATTERN = re.compile(r'^[X]?D\d{2,3}[XFH]')  # 合法 by1 前缀
+
+def _load_known_by1_from_qdrant() -> set:
+    """从 Qdrant 向量库的 parent 集合中加载所有 productName (by1)"""
+    try:
+        from qdrant_store import QdrantVectorStore
+        store = QdrantVectorStore()
+        # scroll 遍历 parent 集合，提取所有 productName
+        by1_set = set()
+        offset = None
+        while True:
+            points, offset = store.client.scroll(
+                collection_name=store.parent_collection,
+                limit=1000,
+                offset=offset,
+                with_payload=True,
+            )
+            if not points:
+                break
+            for p in points:
+                name = p.payload.get('productName', '')
+                # 只保留符合 by1 编码格式的 (过滤掉脏数据)
+                if name and _BY1_PATTERN.match(name):
+                    by1_set.add(name)
+            if offset is None:
+                break
+        if by1_set:
+            print(f"[INFO] 从向量库加载 KNOWN_BY1: {len(by1_set)} 个编码")
+            return by1_set
+    except Exception as e:
+        print(f"[WARN] 向量库加载失败 ({type(e).__name__}: {e}), 使用本地回退")
+    return None
+
+
+def _ensure_known_by1():
+    """延迟初始化 KNOWN_BY1"""
+    global KNOWN_BY1
+    if KNOWN_BY1 is not None:
+        return
+    loaded = _load_known_by1_from_qdrant()
+    if loaded:
+        KNOWN_BY1 = loaded
+    else:
+        KNOWN_BY1 = _FALLBACK_BY1.copy()
+
 # 只需匹配前缀即可的编码 (后缀含特殊数字/编码)
 PREFIX_MATCH = {
     'D341X', 'D342X', 'D343H', 'D373HL',
@@ -690,6 +740,7 @@ PREFIX_MATCH = {
 
 
 def validate(predicted: str, features: dict) -> dict:
+    _ensure_known_by1()
     result = {'predicted': predicted, 'confidence': 'MEDIUM', 'warnings': []}
 
     # 精确匹配

@@ -11,6 +11,7 @@ Stage 2 (Rerank):  By1Reranker 逐维度特征匹配精排 → Top-10
     python hybrid_predict.py sweep     → alpha 扫描
 """
 
+import re
 import csv
 import sys
 import os
@@ -232,9 +233,104 @@ def sweep_alpha(csv_path: str = None):
     print(f"\n最优 alpha = {best_alpha} (Top-10 = {best_top10})")
 
 
+def run_test_csv(csv_path: str = None, alpha: float = 0.3):
+    """在 test.csv 上评估混合预测"""
+    import re
+
+    if csv_path is None:
+        csv_path = 'F:/zhhm_bge_db/test.csv'
+
+    # 读取 CSV (处理 BOM)
+    with open(csv_path, 'r', encoding='utf-8-sig') as f:
+        raw_rows = list(csv.DictReader(f))
+
+    # 统一列名 (处理 BOM 和乱码)
+    rows = []
+    for row in raw_rows:
+        clean_row = {}
+        for k, v in row.items():
+            # 去除 BOM 和不可见字符
+            clean_key = k.strip().replace('\ufeff', '')
+            if '题目' in clean_key or 'EDesc' in clean_key:
+                clean_row['edesc'] = v.strip()
+            elif '答案' in clean_key or 'by1' in clean_key:
+                clean_row['answer'] = v.strip()
+        if clean_row:
+            rows.append(clean_row)
+
+    def extract_by1_from_answer(ans: str) -> str:
+        """从答案中提取 by1 编码
+        QXD381X D76 → XD381X
+        LD71X4 D100 → D71X4
+        RXD371XL D100 → XD371XL
+        """
+        ans = ans.strip()
+        parts = ans.split()
+        code_part = parts[0] if parts else ans
+        # 去掉首字母品牌码 (Q/R/L)
+        if code_part and code_part[0] in 'QRL':
+            code_part = code_part[1:]
+        return code_part
+
+    total = len(rows)
+    top1 = top3 = top5 = top10_count = 0
+
+    print(f"评估 test.csv: 召回 → 精排 (alpha={alpha})")
+    print(f"{'序号':<4} {'EDesc':<55} {'实际by1':<15} {'Top-1':<15} {'命中':<6} {'位置'}")
+    print("-" * 115)
+
+    for i, row in enumerate(rows):
+        edesc = row.get('edesc', '')
+        answer = row.get('answer', '')
+        actual_by1 = extract_by1_from_answer(answer)
+
+        if not edesc or not actual_by1:
+            print(f"{i+1:<4} [跳过] edesc或by1为空")
+            continue
+
+        result = predict_hybrid(edesc, alpha=alpha)
+        cands = result['candidates']
+        top = cands[0] if cands else ''
+
+        if top == actual_by1:
+            top1 += 1; top3 += 1; top5 += 1; top10_count += 1
+            hit = '#1'
+        elif actual_by1 in cands[:3]:
+            top3 += 1; top5 += 1; top10_count += 1
+            hit = '#3'
+        elif actual_by1 in cands[:5]:
+            top5 += 1; top10_count += 1
+            hit = '#5'
+        elif actual_by1 in cands:
+            top10_count += 1
+            hit = '#10'
+        else:
+            hit = 'MISS'
+
+        pos = f"#{cands.index(actual_by1)+1}" if actual_by1 in cands else "未命中"
+        print(f"{i+1:<4} {edesc[:55]:<55} {actual_by1:<15} {top:<15} {hit:<6} {pos}")
+
+    valid = len([r for r in rows if r.get('edesc') and r.get('answer')])
+    print("\n" + "=" * 80)
+    print(f"test.csv 评估报告 (alpha={alpha})")
+    print("=" * 80)
+    print(f"总题目数:     {valid}")
+    if valid > 0:
+        print(f"Top-1 命中:   {top1}/{valid} ({top1/valid*100:.1f}%)")
+        print(f"Top-3 命中:   {top3}/{valid} ({top3/valid*100:.1f}%)")
+        print(f"Top-5 命中:   {top5}/{valid} ({top5/valid*100:.1f}%)")
+        print(f"Top-10 命中:  {top10_count}/{valid} ({top10_count/valid*100:.1f}%)")
+
+    return {'total': valid, 'top1': top1, 'top3': top3,
+            'top5': top5, 'top10': top10_count}
+
+
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == 'sweep':
         sweep_alpha()
+    elif len(sys.argv) > 1 and sys.argv[1] == 'test':
+        alpha = float(sys.argv[2]) if len(sys.argv) > 2 else 0.3
+        run_test_csv(alpha=alpha)
     else:
         alpha = float(sys.argv[1]) if len(sys.argv) > 1 else 0.3
         run_evaluation(alpha=alpha)

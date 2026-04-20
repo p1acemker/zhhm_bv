@@ -53,7 +53,6 @@ def get_service():
         from embedder import BGEEmbedder
         from repo import QdrantRepo
         from service import EDescService
-        from config import CHUNK_SIZE, CHUNK_OVERLAP
 
         store = QdrantVectorStore()
         store.init_collections()
@@ -67,8 +66,6 @@ def get_service():
             store=store,
             embedder=embedder,
             repo=repo,
-            chunk_size=CHUNK_SIZE,
-            chunk_overlap=CHUNK_OVERLAP,
         )
         logger.info("EDescService initialized")
     return _service
@@ -126,6 +123,7 @@ class SearchRequest(BaseModel):
 
     query: str
     top_k: int = 10
+    customer: Optional[str] = None
 
 
 class BatchSearchRequest(BaseModel):
@@ -248,16 +246,24 @@ async def list_edesc(
 
 
 @app.post("/edesc/search", tags=["查询操作"])
-async def search_edesc(request: SearchRequest):
+async def search_edesc_raw(request: SearchRequest):
     """
-    根据货描文本搜索匹配的by1 (向量搜索)
+    根据货描文本搜索匹配的by1 (仅向量召回，不精排)
 
     - **query**: 货描查询文本
     - **top_k**: 返回结果数量
+    - **customer**: 客户简称（可选），匹配时附带该客户对应规格
     """
     service = get_service()
-    results = service.search_by_edesc(request.query, top_k=request.top_k)
-    return {"query": request.query, "total": len(results), "data": results}
+    results = service.search_by_edesc_raw(
+        request.query, top_k=request.top_k, customer=request.customer
+    )
+    return {
+        "query": request.query,
+        "customer": request.customer,
+        "total": len(results),
+        "data": results,
+    }
 
 
 @app.post("/edesc/batch-search", tags=["查询操作"])
@@ -326,9 +332,7 @@ async def batch_search_edesc(request: BatchSearchRequest):
 async def prefix_search_edesc(by1: str, top_k: int = Query(default=10, ge=1, le=50)):
     """
     根据by1前缀匹配搜索相似的品种
-
     前几位编码越相同，相似度越高
-
     - **by1**: 基配品种编码
     - **top_k**: 返回结果数量
     """
@@ -482,10 +486,10 @@ async def export_csv():
         {
             "by1": d["by1"],
             "edesc_count": d["edesc_count"],
-            "source_by1": d["source_by1"],
-            "source_score": d["source_score"],
-            "import_strategy": d["import_strategy"],
-            "EDesc": d["EDesc"],
+            "source_by1": d.get("source_by1", ""),
+            "source_score": d.get("source_score", ""),
+            "import_strategy": d.get("import_strategy", ""),
+            "edesc_list": d.get("edesc_list", []),
         }
         for d in data
     ]

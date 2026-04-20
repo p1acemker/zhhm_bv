@@ -35,7 +35,6 @@ class EDescMaintenance:
         from embedder import BGEEmbedder
         from repo import QdrantRepo
         from service import EDescService
-        from config import CHUNK_SIZE, CHUNK_OVERLAP
 
         self.store = QdrantVectorStore()
         self.store.init_collections()
@@ -51,8 +50,6 @@ class EDescMaintenance:
             store=self.store,
             embedder=self.embedding_client,
             repo=repo,
-            chunk_size=CHUNK_SIZE,
-            chunk_overlap=CHUNK_OVERLAP
         )
 
         logger.info("EDescMaintenance initialized")

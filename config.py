@@ -28,8 +28,8 @@ EMBEDDING_MODEL = "bge-m3"
 EMBEDDING_DIM = 1024
 
 # ==================== 集合名称配置 ====================
-PARENT_COLLECTION = "products_parent"   # 父集合：存储完整产品信息
-CHILD_COLLECTION = "products_child"     # 子集合：存储分段向量
+PARENT_COLLECTION = "products_standardized"  # 父集合：标准化后的产品信息
+CHILD_COLLECTION = "products_std_child"      # 子集合：标准化 EDesc 的 embedding
 
 # ==================== 分段配置 ====================
 CHUNK_SIZE = 500          # 每段文本长度

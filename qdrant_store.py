@@ -45,7 +45,7 @@ class QdrantVectorStore:
         """初始化 Qdrant 向量存储"""
         from config import QDRANT_URL, EMBEDDING_DIM, PARENT_COLLECTION, CHILD_COLLECTION
 
-        self.client = QdrantClient(url=url or QDRANT_URL)
+        self.client = QdrantClient(url=url or QDRANT_URL, timeout=60, check_compatibility=False)
         self.embedding_dim = embedding_dim or EMBEDDING_DIM
         self.parent_collection = parent_collection or PARENT_COLLECTION
         self.child_collection = child_collection or CHILD_COLLECTION

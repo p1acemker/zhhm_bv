@@ -163,7 +163,7 @@ class QdrantRepo:
         self,
         parent_id: str,
         product_name: str,
-        edesc: str,
+        edesc_list: list,
         metadata: Optional[Dict] = None
     ) -> None:
         """
@@ -172,12 +172,13 @@ class QdrantRepo:
         Args:
             parent_id: 父块 ID
             product_name: 产品名称
-            edesc: 货描
+            edesc_list: 标准化货描列表
             metadata: 元数据
         """
         parent_payload = {
             "productName": product_name,
-            "EDesc": edesc,
+            "edesc_list": edesc_list,
+            "edesc_count": len(edesc_list),
             **(metadata or {})
         }
 
@@ -325,15 +326,18 @@ class QdrantRepo:
 
         points, _ = results
 
-        return [
-            {
-                "by1": p.payload.get("productName", ""),
-                "EDesc": p.payload.get("EDesc", ""),
-                "edesc_count": p.payload.get("edesc_count", 0),
-                "source_by1": p.payload.get("source_by1", ""),
-                "source_score": p.payload.get("source_score", ""),
-                "import_strategy": p.payload.get("import_strategy", ""),
+        items = []
+        for p in points:
+            payload = p.payload
+            edesc_list = payload.get("edesc_list", [])
+            items.append({
+                "by1": payload.get("productName", ""),
+                "edesc_list": edesc_list,
+                "edesc_count": payload.get("edesc_count", len(edesc_list)),
+                "EDesc": "; ".join(edesc_list),
+                "source_by1": payload.get("source_by1", ""),
+                "source_score": payload.get("source_score", ""),
+                "import_strategy": payload.get("import_strategy", ""),
                 "parent_id": p.id
-            }
-            for p in points
-        ]
+            })
+        return items

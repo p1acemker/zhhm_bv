@@ -21,8 +21,9 @@ by1 精排器 (Reranker)
     )
     # results[0] → {'by1': 'D71X4', 'score': 128.5, 'breakdown': {...}}
 
-评分维度 (满分 ~120):
-    prefix_match  (10)  XD 前缀是否与信号特征匹配
+评分维度 (满分 ~130):
+    prefix_match  (20)  XD 前缀是否与信号特征匹配
+    pos2_match    (10)  驱动方式码 (3=蜗轮/省略=手动) 是否匹配
     pos3_match    (15)  连接方式码 (7/8/4/1) 是否匹配
     pos4_match    (10)  结构形式码 (1/2/3) 是否匹配
     seat_match    (15)  密封材料码 (X/F/H) 是否匹配
@@ -42,8 +43,9 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scripts.by1_rule_engine import (
     preprocess, extract_features,
-    KNOWN_BY1, _BY1_FREQ
+    _ensure_known_by1, _BY1_FREQ
 )
+import scripts.by1_rule_engine as _rule_mod
 
 
 # ============================================================
@@ -103,8 +105,9 @@ class By1Reranker:
     }
 
     def __init__(self):
+        _ensure_known_by1()
         self.freq = _BY1_FREQ
-        self.known = KNOWN_BY1
+        self.known = _rule_mod.KNOWN_BY1
 
     def rerank(self, edesc: str, candidates: list, top_k: int = 10,
                vec_scores: dict = None, alpha: float = 0.3) -> list:
@@ -201,15 +204,15 @@ class By1Reranker:
 
         bd = {}
 
-        # ==== 基础码匹配 (50 分) ====
+        # ==== 基础码匹配 (65 分) ====
 
-        # 1. 信号前缀 (10 分)
+        # 1. 信号前缀 XD (20 分) — 提高权重
         has_signal = f.get('has_signal', False)
         has_x_prefix = parsed['prefix'] == 'X'
         if has_signal == has_x_prefix:
-            bd['prefix_match'] = 10
+            bd['prefix_match'] = 20
         elif f.get('has_signal_weak') and has_x_prefix:
-            bd['prefix_match'] = 5
+            bd['prefix_match'] = 10
         else:
             bd['prefix_match'] = 0
 
@@ -230,10 +233,23 @@ class By1Reranker:
         else:
             bd['pos4_match'] = 0
 
-        # 4. 密封材料 seat (15 分)
+        # 3.5 驱动方式 pos2 (10 分)
+        actuation = f.get('actuation', 'UNKNOWN')
+        if actuation == 'GEAR' or (f.get('has_signal', False) and actuation == 'UNKNOWN'):
+            expected_pos2 = '3'
+        elif actuation in ('LEVER', 'NO_DRIVE', 'MOTORIZED'):
+            expected_pos2 = ''
+        else:
+            expected_pos2 = None  # UNKNOWN
+        if expected_pos2 is not None:
+            bd['pos2_match'] = 10 if parsed['pos2'] == expected_pos2 else 0
+        else:
+            bd['pos2_match'] = 3  # UNKNOWN 容差
+
+        # 4. 密封材料 seat (20 分) — 提高权重
         seat = f.get('seat_material', 'X')
         if parsed['seat'] == seat:
-            bd['seat_match'] = 15
+            bd['seat_match'] = 20
         else:
             bd['seat_match'] = 0
 
@@ -328,7 +344,7 @@ class By1Reranker:
                 parsed['pos3'] == expected_pos3 and
                 parsed['pos4'] == f.get('valve_structure', '1') and
                 parsed['seat'] == f.get('seat_material', 'X')):
-            return 15.0
+            return 20.0
 
         return 0.0
 

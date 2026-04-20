@@ -10,22 +10,26 @@ EDesc Service - 货描维护业务逻辑层
 
 from typing import List, Dict, Optional, Any
 import logging
+import json
+import os
 
 from embedder.base import BaseEmbedder
 from repo.qdrant_repo import QdrantRepo
 from qdrant_store import QdrantVectorStore
 from strategy.import_strategy import get_strategy, Candidate
-from utils.text_utils import (
-    split_edesc_list,
-    is_edesc_duplicate,
-    clean_edesc_text,
-    count_edesc_items,
-)
 from utils.id_utils import generate_parent_id, generate_child_id
 from qdrant_client.models import PointStruct
 import re
 
 logger = logging.getLogger(__name__)
+
+
+def _standardize(edesc: str) -> str:
+    """调用 7 段标准化，返回标准化后的字符串"""
+    from scripts.edesc_standardizer import standardize_edesc
+
+    result = standardize_edesc(edesc)
+    return result["standardized"]
 
 
 def normalize_query(query: str) -> str:
@@ -112,8 +116,6 @@ class EDescService:
         store: QdrantVectorStore,
         embedder: BaseEmbedder,
         repo: QdrantRepo,
-        chunk_size: int = 500,
-        chunk_overlap: int = 50,
     ):
         """
         初始化 Service
@@ -122,16 +124,39 @@ class EDescService:
             store: 向量存储
             embedder: Embedder
             repo: 数据访问层
-            chunk_size: 分段大小
-            chunk_overlap: 分段重叠
         """
         self.store = store
         self.embedder = embedder
         self.repo = repo
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
+        self._reranker = None
+        self._spec_rules = None
 
         logger.info("EDescService initialized")
+
+    def _get_reranker(self):
+        """延迟初始化精排器"""
+        if self._reranker is None:
+            from scripts.reranker import By1Reranker
+
+            self._reranker = By1Reranker()
+            logger.info("By1Reranker initialized")
+        return self._reranker
+
+    def _get_spec_rules(self) -> dict:
+        """延迟加载客户规格规则表"""
+        if self._spec_rules is None:
+            rule_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "by1_customer_spec_rules.json",
+            )
+            if os.path.exists(rule_path):
+                with open(rule_path, "r", encoding="utf-8") as f:
+                    self._spec_rules = json.load(f)
+                logger.info(f"Loaded spec rules: {len(self._spec_rules)} by1 entries")
+            else:
+                logger.warning(f"Spec rules not found: {rule_path}")
+                self._spec_rules = {}
+        return self._spec_rules
 
     # ==================== 查询操作 ====================
 
@@ -161,11 +186,51 @@ class EDescService:
         logger.debug(f"Listing by1, limit={limit}")
         return self.repo.list_all(limit=limit)
 
+    def search_by_edesc_raw(
+        self,
+        query: str,
+        top_k: int = 10,
+        score_threshold: float = None,
+        customer: str = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        根据货描文本搜索匹配的 by1（仅向量召回，不精排）
+
+        Args:
+            query: 货描查询文本
+            top_k: 返回结果数量
+            score_threshold: 相似度阈值（可选）
+            customer: 客户简称（可选），匹配时附带该客户对应规格
+
+        Returns:
+            匹配结果列表（按向量相似度排序），每条包含 matched_specs 字段
+        """
+        query_vector = self.embedder.encode(query)
+        logger.debug(f"Raw searching by edesc: {query[:50]}...")
+        vec_results = self.store.search(
+            query_vector, top_k=top_k, score_threshold=score_threshold
+        )
+
+        # 如果提供了 customer，按规则表匹配规格
+        if customer:
+            rules = self._get_spec_rules()
+            for r in vec_results:
+                by1 = r.get("productName", "")
+                # productName 本身即为规则表 key（品种去首位后的编码）
+                by1_key = by1
+                cust_specs = rules.get(by1_key, {}).get(customer)
+                r["matched_specs"] = cust_specs  # 匹配到返回列表，未匹配返回 None
+        else:
+            for r in vec_results:
+                r["matched_specs"] = None
+
+        return vec_results
+
     def search_by_edesc(
         self, query: str, top_k: int = 10, score_threshold: float = None
     ) -> List[Dict[str, Any]]:
         """
-        根据货描文本搜索匹配的 by1
+        根据货描文本搜索匹配的 by1（两阶段：向量召回 + 精排）
 
         Args:
             query: 货描查询文本
@@ -173,15 +238,47 @@ class EDescService:
             score_threshold: 相似度阈值（可选）
 
         Returns:
-            匹配结果列表
+            匹配结果列表（按精排分排序）
         """
-        # 标准化 query
-        query = normalize_query(query)
-        logger.debug(f"Searching by edesc: {query[:50]}...")
-        query_vector = self.embedder.encode(query)
-        return self.store.search(
-            query_vector, top_k=top_k, score_threshold=score_threshold
+        # 阶段1: 向量召回 — 多取候选供精排筛选
+        std_query = _standardize(query)
+        logger.debug(f"Searching by edesc: {std_query[:50]}...")
+        query_vector = self.embedder.encode(std_query)
+        recall_k = max(top_k * 3, 20)
+        vec_results = self.store.search(
+            query_vector, top_k=recall_k, score_threshold=score_threshold
         )
+
+        if not vec_results:
+            return []
+
+        # 阶段2: 精排
+        candidates = [r["productName"] for r in vec_results]
+        vec_scores = {r["productName"]: r["score"] for r in vec_results}
+
+        reranker = self._get_reranker()
+        reranked = reranker.rerank(
+            edesc=query,
+            candidates=candidates,
+            top_k=top_k,
+            vec_scores=vec_scores,
+        )
+
+        # 阶段3: 合并精排结果与原始数据
+        result_map = {r["productName"]: r for r in vec_results}
+        output = []
+        for item in reranked:
+            by1 = item["by1"]
+            if by1 not in result_map:
+                continue
+            entry = result_map[by1].copy()
+            entry["rerank_score"] = item["score"]
+            entry["rule_score"] = item["rule_score"]
+            entry["vec_score"] = item["vec_score"]
+            entry["rank"] = item["rank"]
+            output.append(entry)
+
+        return output
 
     def search_by_prefix(self, by1: str, top_k: int = 10) -> List[Dict[str, Any]]:
         """
@@ -219,14 +316,15 @@ class EDescService:
         self, by1: str, edesc: str, metadata: Optional[Dict] = None
     ) -> Dict[str, Any]:
         """
-        添加货描（自动去重）
+        添加货描（自动标准化 + 去重）
 
         逻辑：
-        1. 如果 by1 已存在：
-           - 检查 EDesc 是否重复
+        1. 标准化 edesc
+        2. 如果 by1 已存在：
+           - 检查标准化后的 edesc 是否重复
            - 重复则不添加
-           - 不重复则追加到现有货描
-        2. 如果 by1 不存在：
+           - 不重复则追加到 edesc_list
+        3. 如果 by1 不存在：
            - 创建新记录
 
         Args:
@@ -240,30 +338,28 @@ class EDescService:
         logger.info(f"Adding edesc for by1={by1}")
 
         # 标准化 edesc
-        edesc = edesc.strip()
+        original = edesc.strip()
+        std_edesc = _standardize(original)
 
         # 检查是否已存在
         existing = self.repo.get_by_by1(by1)
 
         if existing:
-            # by1 已存在，检查是否重复
-            existing_edesc = existing["EDesc"]
+            # by1 已存在，检查标准化后的 edesc 是否重复
+            existing_list = existing.get("edesc_list", [])
 
-            if is_edesc_duplicate(edesc, existing_edesc):
-                existing_count = count_edesc_items(existing_edesc)
+            if std_edesc in existing_list:
                 logger.info(f"Duplicate edesc for by1={by1}, skipping")
                 return {
                     "success": False,
                     "message": f"by1={by1} 的货描已存在，无需重复添加",
                     "is_duplicate": True,
-                    "existing_edesc_count": existing_count,
+                    "existing_edesc_count": len(existing_list),
                 }
 
-            # 不重复，追加到现有货描
-            new_edesc = existing_edesc + "; " + edesc
-            new_edesc_count = (
-                existing.get("edesc_count", count_edesc_items(existing_edesc)) + 1
-            )
+            # 不重复，追加到 edesc_list
+            new_edesc_list = existing_list + [std_edesc]
+            new_count = len(new_edesc_list)
 
             # 删除旧记录
             self.repo.delete_by_parent_id(existing["parent_id"])
@@ -271,13 +367,13 @@ class EDescService:
             # 合并 metadata
             new_metadata = existing.get("metadata", {})
             new_metadata["by1"] = by1
-            new_metadata["edesc_count"] = new_edesc_count
+            new_metadata["edesc_count"] = new_count
             if metadata:
                 new_metadata.update(metadata)
 
-            # 添加新记录
+            # 重建
             parent_id = self._add_product_with_embedding(
-                product_name=by1, edesc=new_edesc, metadata=new_metadata
+                product_name=by1, edesc_list=new_edesc_list, metadata=new_metadata
             )
 
             logger.info(f"Appended edesc for by1={by1}")
@@ -286,17 +382,17 @@ class EDescService:
                 "message": f"成功为 by1={by1} 追加货描",
                 "action": "appended",
                 "parent_id": parent_id,
-                "old_edesc_count": existing.get(
-                    "edesc_count", count_edesc_items(existing_edesc)
-                ),
-                "new_edesc_count": new_edesc_count,
+                "original": original,
+                "standardized": std_edesc,
+                "old_edesc_count": len(existing_list),
+                "new_edesc_count": new_count,
             }
 
         else:
             # by1 不存在，创建新记录
             parent_id = self._add_product_with_embedding(
                 product_name=by1,
-                edesc=edesc,
+                edesc_list=[std_edesc],
                 metadata=metadata or {"by1": by1, "edesc_count": 1},
             )
 
@@ -306,6 +402,8 @@ class EDescService:
                 "message": f"成功添加新 by1={by1}",
                 "action": "created",
                 "parent_id": parent_id,
+                "original": original,
+                "standardized": std_edesc,
             }
 
     def update_edesc(
@@ -336,23 +434,26 @@ class EDescService:
                 "message": f"by1={by1} 不存在，请使用 add_edesc 添加",
             }
 
-        # 确定最终货描
+        # 标准化
+        original = new_edesc.strip()
+        std_edesc = _standardize(original)
+
+        # 确定最终 edesc_list
+        existing_list = existing.get("edesc_list", [])
         if append:
-            final_edesc = existing["EDesc"] + "; " + new_edesc
+            final_list = existing_list + [std_edesc]
         else:
-            final_edesc = new_edesc
+            final_list = [std_edesc]
 
         # 删除旧记录
         self.repo.delete_by_parent_id(existing["parent_id"])
 
-        # 添加新记录
+        # 重建
         new_metadata = metadata or existing.get("metadata", {})
-        new_metadata["edesc_count"] = existing.get("edesc_count", 1) + (
-            1 if append else 0
-        )
+        new_metadata["edesc_count"] = len(final_list)
 
         parent_id = self._add_product_with_embedding(
-            product_name=by1, edesc=final_edesc, metadata=new_metadata
+            product_name=by1, edesc_list=final_list, metadata=new_metadata
         )
 
         logger.info(f"Updated edesc for by1={by1}")
@@ -360,8 +461,10 @@ class EDescService:
             "success": True,
             "message": f"成功更新 by1={by1}",
             "parent_id": parent_id,
-            "old_edesc_length": len(existing["EDesc"]),
-            "new_edesc_length": len(final_edesc),
+            "original": original,
+            "standardized": std_edesc,
+            "old_edesc_count": len(existing_list),
+            "new_edesc_count": len(final_list),
         }
 
     def delete_by1(self, by1: str) -> Dict[str, Any]:
@@ -383,10 +486,12 @@ class EDescService:
         self.repo.delete_by_parent_id(existing["parent_id"])
 
         logger.info(f"Deleted by1={by1}")
+        edesc_list = existing.get("edesc_list", [])
+        preview = edesc_list[0][:100] + "..." if edesc_list else ""
         return {
             "success": True,
             "message": f"成功删除 by1={by1}",
-            "deleted_edesc_preview": existing["EDesc"][:100] + "...",
+            "deleted_edesc_preview": preview,
         }
 
     # ==================== 智能导入 ====================
@@ -429,13 +534,15 @@ class EDescService:
             by1 = result["by1"]
             detail = self.repo.get_by_by1(by1)
             if detail:
+                edesc_list = detail.get("edesc_list", [])
+                preview = edesc_list[0][:150] + "..." if edesc_list else ""
                 candidates.append(
                     {
                         "by1": by1,
                         "score": round(result["score"], 4),
                         "prefix_match_len": result["prefix_match_len"],
                         "edesc_count": detail["edesc_count"],
-                        "edesc_preview": detail["EDesc"][:150] + "...",
+                        "edesc_preview": preview,
                     }
                 )
 
@@ -489,14 +596,16 @@ class EDescService:
             by1 = result["by1"]
             detail = self.repo.get_by_by1(by1)
             if detail:
+                edesc_list = detail.get("edesc_list", [])
+                edesc_text = "; ".join(edesc_list)
                 candidates.append(
                     Candidate(
                         by1=by1,
                         score=result["score"],
                         prefix_match_len=result["prefix_match_len"],
                         edesc_count=detail["edesc_count"],
-                        edesc=detail["EDesc"],
-                        edesc_length=len(detail["EDesc"]),
+                        edesc=edesc_text,
+                        edesc_length=len(edesc_text),
                     )
                 )
 
@@ -507,10 +616,13 @@ class EDescService:
         strategy_instance = get_strategy(strategy)
         selected = strategy_instance.select(candidates)
 
-        # 导入新 by1
-        add_result = self.add_edesc(
-            by1=new_by1,
-            edesc=selected.edesc,
+        # 导入新 by1（直接使用源 by1 的 edesc_list，已是标准化数据）
+        source_detail = self.repo.get_by_by1(selected.by1)
+        source_edesc_list = source_detail.get("edesc_list", []) if source_detail else []
+
+        parent_id = self._add_product_with_embedding(
+            product_name=new_by1,
+            edesc_list=source_edesc_list,
             metadata={
                 "by1": new_by1,
                 "edesc_count": selected.edesc_count,
@@ -534,8 +646,8 @@ class EDescService:
                 "edesc_count": selected.edesc_count,
             },
             "all_candidates": [c.to_dict() for c in candidates],
-            "imported_edesc_preview": selected.edesc[:200] + "...",
-            "add_result": add_result,
+            "imported_edesc_preview": "; ".join(source_edesc_list[:2])[:200] + "...",
+            "parent_id": parent_id,
         }
 
     def batch_import(
@@ -572,73 +684,53 @@ class EDescService:
     # ==================== 内部方法 ====================
 
     def _add_product_with_embedding(
-        self, product_name: str, edesc: str, metadata: Optional[Dict] = None
+        self, product_name: str, edesc_list: list, metadata: Optional[Dict] = None
     ) -> str:
         """
-        添加产品及其嵌入向量
+        添加产品及其嵌入向量（标准化数据模型）
+
+        每条 edesc 独立编码，存为独立子块。
 
         Args:
             product_name: 产品名称
-            edesc: 货描
+            edesc_list: 标准化货描列表
             metadata: 元数据
 
         Returns:
             parent_id
         """
-        parent_id = generate_parent_id(product_name, edesc)
+        parent_id = generate_parent_id(product_name)
 
         # 插入父块
         self.repo.upsert_parent(
             parent_id=parent_id,
             product_name=product_name,
-            edesc=edesc,
+            edesc_list=edesc_list,
             metadata=metadata,
         )
 
-        # 分段文本
-        chunks = self._split_text(edesc, self.chunk_size, self.chunk_overlap)
-
-        # 生成子块向量
-        if chunks:
+        # 每条 edesc 独立编码为子块
+        if edesc_list:
+            embeddings = self.embedder.encode(edesc_list)
             child_points = []
-            for idx, chunk_text in enumerate(chunks):
-                embedding = self.embedder.encode(chunk_text)
+            for idx, (text, emb) in enumerate(zip(edesc_list, embeddings)):
                 child_id = generate_child_id(parent_id, idx)
-
+                vec = list(emb) if not isinstance(emb, list) else emb
                 child_points.append(
                     PointStruct(
                         id=child_id,
-                        vector=embedding,
+                        vector=vec,
                         payload={
                             "parent_id": parent_id,
-                            "chunk_index": idx,
-                            "text": chunk_text,
+                            "edesc_index": idx,
+                            "edesc_text": text,
                             "productName": product_name,
                         },
                     )
                 )
-
-            # 批量插入子块
             self.repo.upsert_children(child_points)
 
         return parent_id
-
-    def _split_text(self, text: str, chunk_size: int, overlap: int) -> List[str]:
-        """滑动窗口分段文本"""
-        if not text or chunk_size <= 0:
-            return [text] if text else []
-
-        chunks = []
-        start = 0
-        text_len = len(text)
-
-        while start < text_len:
-            end = min(start + chunk_size, text_len)
-            chunk = text[start:end]
-            chunks.append(chunk)
-            start = end - overlap if end < text_len else end
-
-        return chunks
 
     # ==================== 统计与导出 ====================
 
