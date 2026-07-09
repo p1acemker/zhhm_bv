@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Embedder module - embedding interface and implementations"""
+"""Embedder module."""
 
-from .base import BaseEmbedder
+from .base import BaseEmbedder, Embedding, EmbeddingInput, EmbeddingOutput
 from .bge_embedder import BGEEmbedder
-from .async_embedder import AsyncBGEEmbedder
 
 __all__ = [
     "BaseEmbedder",
     "BGEEmbedder",
-    "AsyncBGEEmbedder",
+    "Embedding",
+    "EmbeddingInput",
+    "EmbeddingOutput",
 ]
