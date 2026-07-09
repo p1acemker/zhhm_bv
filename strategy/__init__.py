@@ -1,20 +1,10 @@
-# -*- coding: utf-8 -*-
-"""Import strategy module - 导入策略模块"""
+"""Import strategy helpers."""
 
-from .import_strategy import (
-    BaseImportStrategy,
-    Candidate,
-    MostReferencesStrategy,
-    HighestScoreStrategy,
-    CombinedStrategy,
-    get_strategy,
-)
+from .import_strategy import Candidate, prefix_similarity, rank_prefix_matches, select_best
 
 __all__ = [
-    "BaseImportStrategy",
     "Candidate",
-    "MostReferencesStrategy",
-    "HighestScoreStrategy",
-    "CombinedStrategy",
-    "get_strategy",
+    "prefix_similarity",
+    "rank_prefix_matches",
+    "select_best",
 ]
