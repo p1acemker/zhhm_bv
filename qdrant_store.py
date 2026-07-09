@@ -68,6 +68,14 @@ class QdrantVectorStore:
             self.client.delete(collection_name=collection, points_selector=Filter())
         logger.info("Cleared all collection data")
 
+    def rebuild_collections(self) -> None:
+        """Delete and recreate both managed collections."""
+        for collection in [self.parent_collection, self.child_collection]:
+            if self.client.collection_exists(collection):
+                self.client.delete_collection(collection)
+        self.init_collections()
+        logger.info("Rebuilt managed collections")
+
     def get_stats(self) -> Dict[str, Dict[str, Any]]:
         """Return names and point counts for the configured collections."""
         parent_info = self.client.get_collection(self.parent_collection)

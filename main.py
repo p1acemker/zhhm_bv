@@ -126,9 +126,7 @@ class ProductSearchEngine:
 
     def rebuild_collections(self) -> None:
         """Delete and recreate the Qdrant collections."""
-        self.store.client.delete_collection(self.store.parent_collection)
-        self.store.client.delete_collection(self.store.child_collection)
-        self.store.init_collections()
+        self.store.rebuild_collections()
         print("Rebuilt collections")
 
 
