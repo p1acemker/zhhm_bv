@@ -8,16 +8,17 @@ from api import (
 
 
 def test_supported_routes_are_registered() -> None:
-    routes = {
-        (next(iter(route.methods)), route.path)
-        for route in app.routes
-        if getattr(route, "methods", None)
-    }
+    def has_route(path: str, method: str) -> bool:
+        return any(
+            route.path == path and method in route.methods
+            for route in app.routes
+            if getattr(route, "methods", None)
+        )
 
-    assert ("POST", "/edesc/search") in routes
-    assert ("POST", "/edesc/add") in routes
-    assert ("POST", "/edesc/batch-import") in routes
-    assert ("POST", "/valve/parse") in routes
+    assert has_route("/edesc/search", "POST")
+    assert has_route("/edesc/add", "POST")
+    assert has_route("/edesc/batch-import", "POST")
+    assert has_route("/valve/parse", "POST")
 
 
 def test_search_request_defaults() -> None:

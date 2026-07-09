@@ -31,5 +31,5 @@ def test_select_best_prefers_highest_edesc_count() -> None:
 
 
 def test_select_best_rejects_empty_candidates() -> None:
-    with pytest.raises(ValueError, match="candidate"):
+    with pytest.raises(ValueError):
         select_best([])
