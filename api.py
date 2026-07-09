@@ -46,10 +46,7 @@ def get_service():
         from service import EDescService
 
         store = QdrantVectorStore()
-        try:
-            store.init_collections()
-        except Exception as exc:
-            logger.warning("init_collections skipped: %s", exc)
+        store.init_collections()
         embedder = BGEEmbedder()
         repo = QdrantRepo(
             client=store.client,
