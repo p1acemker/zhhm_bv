@@ -6,6 +6,10 @@ from api import (
     app,
 )
 
+from fastapi.testclient import TestClient
+
+import api
+
 
 def test_supported_routes_are_registered() -> None:
     def has_route(path: str, method: str) -> bool:
@@ -48,3 +52,37 @@ def test_valve_parse_request_keeps_model_field() -> None:
     request = ValveParseRequest(model="D371X4")
 
     assert request.model == "D371X4"
+
+
+class FakeEDescService:
+    def search_by_edesc_raw(self, query, top_k=10, customer=None):
+        return [{"productName": "D371X4", "score": 0.95}]
+
+    def add_edesc(self, by1, edesc, metadata=None):
+        return {"success": True, "message": "ok", "action": "created", "parent_id": "p1"}
+
+    def batch_import(self, by1_list, strategy="most_references"):
+        return {"total": len(by1_list), "success_count": len(by1_list), "fail_count": 0, "details": []}
+
+
+class FakeValveService:
+    def parse_with_normalized(self, model):
+        return {
+            "type": "butterfly valve",
+            "driveMode": "manual",
+            "connectMode": "lug",
+            "form": "centerline",
+            "material": "rubber",
+            "standardizedProduct": "D371X",
+        }
+
+
+def test_api_routes_delegate_to_services(monkeypatch) -> None:
+    monkeypatch.setattr(api, "get_service", lambda: FakeEDescService())
+    monkeypatch.setattr(api, "get_variety_type_service", lambda: FakeValveService())
+    client = TestClient(api.app)
+
+    assert client.post("/edesc/search", json={"query": "desc"}).status_code == 200
+    assert client.post("/edesc/add", json={"by1": "D371X4", "edesc": "desc"}).status_code == 200
+    assert client.post("/edesc/batch-import", json={"by1_list": ["D371X4"]}).status_code == 200
+    assert client.post("/valve/parse", json={"model": "D371X4"}).status_code == 200
