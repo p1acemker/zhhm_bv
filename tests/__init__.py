@@ -1,2 +1,1 @@
-# -*- coding: utf-8 -*-
-"""Tests module - 单元测试"""
+"""Tests for zhhm_bge_db."""

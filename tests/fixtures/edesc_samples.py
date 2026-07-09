@@ -1,0 +1,6 @@
+"""Shared sample values for offline unit tests."""
+
+SEARCH_QUERY = "DI LUG WAFER BUTTERFLY VALVE DN100"
+BY1 = "D371X4"
+EDESC = "DI LUG WAFER BUTTERFLY VALVE"
+VALVE_MODEL = "D371X4"
