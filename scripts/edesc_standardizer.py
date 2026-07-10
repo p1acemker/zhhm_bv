@@ -1,30 +1,8 @@
 # -*- coding: utf-8 -*-
-"""
-EDesc 标准化脚本
-
-对 edesc_by1_filtered.csv 中的 EDesc 进行 7 段标准化处理并去重。
-
-7 段结构:
-  段1: [消防认证] [阀体材质] [连接方式] BFV [W/信号开关]
-  段2: [密封材料] SEAT
-  段3: [阀板材料] DISC
-  段4: [操作方式] [特殊结构]
-  段5: [口径]
-  段6: [压力等级]
-  段7: [额外属性]
-
-使用:
-    python scripts/edesc_standardizer.py
-"""
+"""Standardize raw product descriptions for the API search and write workflows."""
 
 import re
-import csv
-import os
-import sys
-from collections import defaultdict, Counter
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from scripts.by1_rule_engine import preprocess, extract_features
+from scripts.edesc_features import extract_features, preprocess
 
 
 # ============================================================
@@ -178,7 +156,7 @@ EXTRA_ATTR_PATTERNS = [
 # ============================================================
 
 def _parse_fraction_inch(s: str) -> float:
-    """解析分数英寸: '21/2' → 2.5, '2 1/2' → 2.5, '4' → 4.0"""
+    """Standardize raw product descriptions for the API search and write workflows."""
     s = s.strip()
     m = re.match(r'^(\d+)\s+(\d+)/(\d+)$', s)
     if m:
@@ -193,7 +171,7 @@ def _parse_fraction_inch(s: str) -> float:
 
 
 def _format_inch(inch: float) -> str:
-    """将英寸数值格式化为标准字符串: 2.5 → '2 1/2', 4.0 → '4'"""
+    """Standardize raw product descriptions for the API search and write workflows."""
     if inch == int(inch):
         return str(int(inch))
     frac = inch - int(inch)
@@ -207,7 +185,7 @@ def _format_inch(inch: float) -> str:
 
 
 def normalize_size(text: str) -> str:
-    """从文本中提取口径并统一为 N"/DNxxx 格式"""
+    """Standardize raw product descriptions for the API search and write workflows."""
     t = text.upper()
 
     # 模式1: N"/DNxxx 或 N"/xxxMM
@@ -256,7 +234,7 @@ def normalize_size(text: str) -> str:
 
 
 def extract_pressure(text: str) -> str:
-    """提取压力等级"""
+    """Standardize raw product descriptions for the API search and write workflows."""
     t = text.upper()
     m = re.search(r'(\d+)\s*PSI', t)
     if m:
@@ -271,7 +249,7 @@ def extract_pressure(text: str) -> str:
 
 
 def _build_segment1(f: dict) -> str:
-    """段1: [认证] [阀体] [连接] BFV [W/信号]"""
+    """Standardize raw product descriptions for the API search and write workflows."""
     parts = []
     # 消防认证
     if f.get('has_signal') or f.get('has_signal_weak'):
@@ -299,13 +277,13 @@ def _build_segment1(f: dict) -> str:
 
 
 def _build_segment2(f: dict) -> str:
-    """段2: 密封材料 SEAT"""
+    """Standardize raw product descriptions for the API search and write workflows."""
     seat = f.get('seat_name', 'EPDM')
     return f'{seat} SEAT'
 
 
 def _build_segment3(f: dict) -> str:
-    """段3: 阀板材料 DISC"""
+    """Standardize raw product descriptions for the API search and write workflows."""
     disc_map = {
         'SS316': 'SS316 DISC', 'SS304': 'SS304 DISC',
         'DI_EPDM': 'DI+EPDM DISC', 'DI_NBR': 'DI+NBR DISC',
@@ -315,7 +293,7 @@ def _build_segment3(f: dict) -> str:
 
 
 def _build_segment4(f: dict) -> str:
-    """段4: 操作方式 + 特殊结构"""
+    """Standardize raw product descriptions for the API search and write workflows."""
     parts = []
     act = f.get('actuation', 'UNKNOWN')
     act_map = {
@@ -335,7 +313,7 @@ def _build_segment4(f: dict) -> str:
 
 
 def _build_segment7(edesc_orig: str, features: dict) -> str:
-    """段7: 额外属性 — 从原始 EDesc 中提取未被前6段捕获的信息"""
+    """Standardize raw product descriptions for the API search and write workflows."""
     t = edesc_orig.upper()
 
     # 收集已提取特征对应的原文片段，用于移除
@@ -404,17 +382,7 @@ def _build_segment7(edesc_orig: str, features: dict) -> str:
 
 
 def standardize_edesc(edesc: str) -> dict:
-    """
-    EDesc 标准化主函数
-
-    Returns:
-        {
-            'original': 原始 EDesc,
-            'standardized': 标准化 7 段字符串,
-            'segments': 各段详情,
-            'features': 提取的特征,
-        }
-    """
+    """Standardize raw product descriptions for the API search and write workflows."""
     # Step 1: 预处理 + 特征提取 (复用 rule_engine)
     clean = preprocess(edesc)
     features = extract_features(clean)
@@ -449,97 +417,3 @@ def standardize_edesc(edesc: str) -> dict:
 # ============================================================
 # 主流程: 标准化 + 去重
 # ============================================================
-
-def run(input_csv: str = None, output_csv: str = None):
-    """执行标准化和去重"""
-    if input_csv is None:
-        input_csv = 'F:/zhhm_bge_db/zhhm_orders/edesc_by1_filtered.csv'
-    if output_csv is None:
-        output_csv = 'F:/zhhm_bge_db/zhhm_orders/edesc_by1_standardized.csv'
-
-    with open(input_csv, 'r', encoding='utf-8') as f:
-        rows = list(csv.DictReader(f))
-
-    print(f"读取 {len(rows)} 条记录")
-
-    # 标准化
-    results = []
-    for i, row in enumerate(rows):
-        edesc = row['EDesc']
-        by1 = row['by1']
-        result = standardize_edesc(edesc)
-        result['by1'] = by1
-        results.append(result)
-        if (i + 1) % 500 == 0:
-            print(f"  已处理 {i+1}/{len(rows)}")
-
-    print(f"标准化完成, 共 {len(results)} 条")
-
-    # 按 (standardized, by1) 去重
-    seen = {}
-    deduped = []
-    dup_count = 0
-    for r in results:
-        key = (r['standardized'], r['by1'])
-        if key not in seen:
-            seen[key] = r
-            deduped.append(r)
-        else:
-            dup_count += 1
-
-    print(f"去重: 移除 {dup_count} 条重复, 保留 {len(deduped)} 条")
-
-    # 统计
-    by1_counter = Counter(r['by1'] for r in deduped)
-    std_counter = Counter(r['standardized'] for r in deduped)
-    same_std_diff_by1 = defaultdict(set)
-    for r in deduped:
-        same_std_diff_by1[r['standardized']].add(r['by1'])
-    conflicts = {k: v for k, v in same_std_diff_by1.items() if len(v) > 1}
-
-    print(f"\n=== 去重后统计 ===")
-    print(f"总记录数: {len(deduped)}")
-    print(f"唯一 by1: {len(by1_counter)}")
-    print(f"唯一标准化 EDesc: {len(std_counter)}")
-    print(f"同一标准化描述对应不同 by1: {len(conflicts)} 组")
-
-    if conflicts:
-        print(f"\n冲突详情 (标准化描述相同但 by1 不同):")
-        for std, by1s in sorted(conflicts.items(), key=lambda x: -len(x[1]))[:20]:
-            print(f"  {std[:100]}")
-            print(f"    → {', '.join(sorted(by1s))}")
-
-    # 输出 CSV
-    with open(output_csv, 'w', encoding='utf-8', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            'standardized', 'by1', 'original', 'count',
-            'seg1_body', 'seg2_seat', 'seg3_disc', 'seg4_actuation',
-            'seg5_size', 'seg6_pressure', 'seg7_extra',
-        ])
-        # 按 (standardized, by1) 合并计数
-        merge_counter = Counter((r['standardized'], r['by1']) for r in results)
-        for r in deduped:
-            key = (r['standardized'], r['by1'])
-            cnt = merge_counter[key]
-            segs = r['segments']
-            writer.writerow([
-                r['standardized'], r['by1'], r['original'], cnt,
-                segs['body'], segs['seat'], segs['disc'], segs['actuation'],
-                segs['size'], segs['pressure'], segs['extra'],
-            ])
-
-    print(f"\n已输出: {output_csv}")
-
-    # 输出标准化样本
-    print(f"\n=== 标准化样本 (前20条) ===")
-    print(f"{'by1':<16} {'标准化后'}")
-    print("-" * 130)
-    for r in deduped[:20]:
-        print(f"{r['by1']:<16} {r['standardized'][:110]}")
-
-    return deduped
-
-
-if __name__ == '__main__':
-    run()

@@ -1,13 +1,5 @@
-# -*- coding: utf-8 -*-
-"""Utils module - utility functions for text processing and ID generation"""
+"""Identifier helpers used by the API runtime."""
 
-from .text_utils import split_edesc_list, is_edesc_duplicate, clean_edesc_text
-from .id_utils import generate_parent_id, generate_child_id
+from .id_utils import generate_child_id, generate_parent_id
 
-__all__ = [
-    "split_edesc_list",
-    "is_edesc_duplicate",
-    "clean_edesc_text",
-    "generate_parent_id",
-    "generate_child_id",
-]
+__all__ = ["generate_child_id", "generate_parent_id"]

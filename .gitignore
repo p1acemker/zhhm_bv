@@ -6,3 +6,11 @@ __pycache__/
 # Local development artifacts
 .superpowers/
 *.bak
+
+# Local evaluation datasets and generated reports
+/history_orders.xlsx
+/test.csv
+/test_bak.csv
+/test_misses_top*.csv
+/training_cleaned.csv
+/zhhm_orders/
