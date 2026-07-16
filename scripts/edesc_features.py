@@ -143,13 +143,9 @@ def extract_features(text: str) -> dict:
     elif 'DI+EPDM' in t or 'DI EPDM' in t:
         features['seat_material'] = 'X'
         features['seat_name'] = 'EPDM'
-    elif features['connection'] == 'GROOVED' and 'DI+EPDM' not in t:
-        # 沟槽阀默认 EPDM
-        features['seat_material'] = 'X'
-        features['seat_name'] = 'EPDM'
     else:
-        features['seat_material'] = 'X'
-        features['seat_name'] = 'EPDM'  # 默认
+        features['seat_material'] = 'UNKNOWN'
+        features['seat_name'] = 'UNKNOWN'
 
     # --- 5. 操作方式 ---
     has_gear = any(kw in t for kw in ['GEAR', 'GEARBOX', 'TURBINE', 'WORM GEAR',

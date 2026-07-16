@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="EDesc maintenance API",
-    description="Maintains product descriptions and parses valve model codes.",
-    version="3.0.0",
+    description="Maintains product descriptions and infers order specifications.",
+    version="3.1.0",
 )
 
 app.add_middleware(
@@ -32,6 +32,9 @@ app.add_middleware(
 )
 
 _service = None
+_spec_inference_service = None
+_recommendation_service = None
+_description_design_service = None
 _variety_type_service = None
 
 
@@ -70,12 +73,86 @@ def get_variety_type_service():
     return _variety_type_service
 
 
+def get_spec_inference_service():
+    """Return the lazily initialized historical specification service."""
+    global _spec_inference_service
+    if _spec_inference_service is None:
+        from config import SPEC_INFERENCE_INDEX_PATH, SPEC_INFERENCE_RULES_PATH
+        from service import SpecInferenceService
+
+        _spec_inference_service = SpecInferenceService(
+            SPEC_INFERENCE_INDEX_PATH,
+            SPEC_INFERENCE_RULES_PATH,
+        )
+        logger.info("SpecInferenceService initialized")
+    return _spec_inference_service
+
+
+def get_recommendation_service():
+    """Return the lazily initialized by1/form-code recommendation service."""
+    global _recommendation_service
+    if _recommendation_service is None:
+        from config import RECOMMENDATION_INDEX_PATH, RECOMMENDATION_MODE
+        from service import RecommendationService
+        from service.candidate_retriever import CandidateRetriever
+        from service.candidate_reranker import CandidateReranker, RerankerClient
+
+        retriever = (
+            CandidateRetriever.from_config()
+            if RECOMMENDATION_MODE == "hybrid"
+            else None
+        )
+        reranker_client = (
+            RerankerClient.from_config()
+            if RECOMMENDATION_MODE == "hybrid"
+            else None
+        )
+        _recommendation_service = RecommendationService(
+            RECOMMENDATION_INDEX_PATH,
+            retriever=retriever,
+            reranker=CandidateReranker(reranker_client)
+            if reranker_client is not None
+            else None,
+        )
+        logger.info("RecommendationService initialized")
+    return _recommendation_service
+
+
+def get_description_design_mode() -> str:
+    """Return a validated description-design rollout mode."""
+    from config import EDESC_DESIGN_MODE
+
+    return EDESC_DESIGN_MODE if EDESC_DESIGN_MODE in {"off", "shadow", "on"} else "off"
+
+
+def get_description_design_service():
+    """Return the lazily initialized valve-description design service."""
+    global _description_design_service
+    if _description_design_service is None:
+        from service.description_design import DescriptionDesignService
+
+        _description_design_service = DescriptionDesignService.from_config()
+        logger.info("DescriptionDesignService initialized")
+    return _description_design_service
+
+
 class SearchRequest(BaseModel):
-    """Request body for vector search by product description."""
+    """Description search and integrated recommendation request."""
 
     query: str = Field(..., description="Raw product description text.")
-    top_k: int = Field(10, ge=1, le=100, description="Maximum results to return.")
-    customer: Optional[str] = Field(None, description="Optional customer name.")
+    top_k: int = Field(5, ge=1, le=20, description="Maximum by1 results to return.")
+    customer: str = Field("", description="Optional customer name.")
+    form_code: str = Field("", description="Structured product-code form, such as 90F.")
+    form: str = Field("", description="Deprecated alias for form_code.")
+
+
+class SpecInferenceRequest(BaseModel):
+    """Backward-compatible request for the legacy specification endpoint."""
+
+    query: str = Field(..., description="Raw product description text.")
+    top_k: int = Field(50, ge=1, le=100, description="Maximum alternatives to return.")
+    customer: str = Field("", description="Optional customer name.")
+    form: str = Field("", description="Legacy product variety/by1 context.")
 
 
 class AddEDescRequest(BaseModel):
@@ -117,19 +194,102 @@ async def health_check():
 
 @app.post("/edesc/search", tags=["edesc"])
 async def search_edesc(request: SearchRequest):
-    """Search products by raw description text."""
-    service = get_service()
-    results = service.search_by_edesc_raw(
-        request.query,
-        top_k=request.top_k,
-        customer=request.customer,
-    )
-    return {
+    """Recommend by1 and specification, with vector search as fallback."""
+    form_code = request.form_code or request.form
+    try:
+        recommendation = get_recommendation_service().recommend(
+            query=request.query,
+            form_code=form_code,
+            customer=request.customer,
+            top_k=request.top_k,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    candidates = recommendation["by1_candidates"]
+    if candidates:
+        results = [
+            {**candidate, "productName": candidate["by1"]}
+            for candidate in candidates
+        ]
+        by1_match_level = recommendation["by1_match_level"]
+        recommendation_source = (
+            "full_vector_index"
+            if by1_match_level in {"vector_full_index", "vector_reranked"}
+            else "historical_index"
+        )
+    else:
+        service = get_service()
+        results = service.search_by_edesc_raw(
+            request.query,
+            top_k=request.top_k,
+            customer=request.customer or None,
+        )
+        recommendation_source = "vector_fallback"
+        by1_match_level = "vector_description" if results else "none"
+    response = {
         "query": request.query,
         "customer": request.customer,
+        "form_code": form_code,
         "total": len(results),
         "data": results,
+        "recommendation_source": recommendation_source,
+        "by1_match_level": by1_match_level,
+        "inferred_spec": recommendation["inferred_spec"],
+        "spec_confidence": recommendation["spec_confidence"],
+        "spec_confidence_score": recommendation["spec_confidence_score"],
+        "spec_match_level": recommendation["spec_match_level"],
+        "spec_alternatives": recommendation["spec_alternatives"],
+        "evidence": recommendation["evidence"],
     }
+    design_mode = get_description_design_mode()
+    if design_mode in {"shadow", "on"}:
+        try:
+            description_design = get_description_design_service().design(
+                request.query,
+                by1_candidates=candidates or results,
+                form_code=form_code,
+            )
+            if design_mode == "on":
+                response["description_design"] = description_design
+            else:
+                logger.info(
+                    "Description design shadow result: status=%s family=%s template=%s",
+                    description_design.get("status"),
+                    description_design.get("valve_family"),
+                    description_design.get("template_id"),
+                )
+        except Exception as exc:
+            logger.warning("Description design failed without affecting search: %s", exc)
+            if design_mode == "on":
+                response["description_design"] = {
+                    "status": "partial",
+                    "valve_family": None,
+                    "product_role": "other",
+                    "standardized_description": None,
+                    "template_id": None,
+                    "confidence": "low",
+                    "confidence_score": 0.0,
+                    "attributes": {},
+                    "inferred_fields": [],
+                    "warnings": ["description_design_unavailable"],
+                    "alternatives": [],
+                }
+    return response
+
+
+@app.post("/spec/infer", tags=["specification"])
+async def infer_specification(request: SpecInferenceRequest):
+    """Infer a specification from description, customer, and form context."""
+    service = get_spec_inference_service()
+    try:
+        return service.infer(
+            query=request.query,
+            top_k=request.top_k,
+            customer=request.customer,
+            form=request.form,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.post("/edesc/add", tags=["edesc"])
@@ -165,7 +325,7 @@ async def parse_valve_model(request: ValveParseRequest):
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("EDesc maintenance API service v3.0.0")
+    print("EDesc maintenance API service v3.1.0")
     print("=" * 50)
     print("API docs: http://localhost:8000/docs")
     print("=" * 50)

@@ -2,6 +2,7 @@ from api import (
     AddEDescRequest,
     BatchImportRequest,
     SearchRequest,
+    SpecInferenceRequest,
     ValveParseRequest,
     app,
 )
@@ -22,15 +23,26 @@ def test_supported_routes_are_registered() -> None:
     assert has_route("/edesc/search", "POST")
     assert has_route("/edesc/add", "POST")
     assert has_route("/edesc/batch-import", "POST")
+    assert has_route("/spec/infer", "POST")
     assert has_route("/valve/parse", "POST")
+    assert not has_route("/recommend", "POST")
 
 
 def test_search_request_defaults() -> None:
     request = SearchRequest(query="abc")
 
     assert request.query == "abc"
-    assert request.top_k == 10
-    assert request.customer is None
+    assert request.top_k == 5
+    assert request.customer == ""
+    assert request.form == ""
+    assert request.form_code == ""
+
+
+def test_spec_inference_request_defaults() -> None:
+    request = SpecInferenceRequest(query="description", form="D371X4")
+
+    assert request.form == "D371X4"
+    assert request.top_k == 50
 
 
 def test_add_edesc_request_accepts_optional_metadata() -> None:
@@ -77,12 +89,89 @@ class FakeValveService:
         }
 
 
+class FakeSpecInferenceService:
+    def infer(self, query, top_k=50, customer="", form=""):
+        return {
+            "query": query,
+            "customer": customer,
+            "form": form,
+            "inferred_spec": "D100",
+            "confidence": "high",
+            "confidence_score": 0.98,
+            "match_level": "description_customer_form",
+            "evidence": {},
+            "alternatives": [],
+        }
+
+
+class FakeRecommendationService:
+    def recommend(self, query, form_code="", customer="", top_k=5):
+        return {
+            "query": query,
+            "form_code": form_code,
+            "by1_candidates": [{"by1": "D71XLV99"}],
+            "by1_match_level": "description_form_code",
+            "inferred_spec": "D100",
+            "spec_confidence": "high",
+            "spec_confidence_score": 1.0,
+            "spec_match_level": "description_form_code",
+            "spec_alternatives": [{"spec": "D100"}],
+            "evidence": {},
+        }
+
+
 def test_api_routes_delegate_to_services(monkeypatch) -> None:
     monkeypatch.setattr(api, "get_service", lambda: FakeEDescService())
+    monkeypatch.setattr(
+        api,
+        "get_spec_inference_service",
+        lambda: FakeSpecInferenceService(),
+    )
+    monkeypatch.setattr(
+        api,
+        "get_recommendation_service",
+        lambda: FakeRecommendationService(),
+    )
     monkeypatch.setattr(api, "get_variety_type_service", lambda: FakeValveService())
     client = TestClient(api.app)
 
-    assert client.post("/edesc/search", json={"query": "desc"}).status_code == 200
+    search_response = client.post(
+        "/edesc/search",
+        json={"query": "desc", "form_code": "90F"},
+    )
+    assert search_response.status_code == 200
+    assert search_response.json()["data"][0]["productName"] == "D71XLV99"
+    assert search_response.json()["inferred_spec"] == "D100"
     assert client.post("/edesc/add", json={"by1": "D371X4", "edesc": "desc"}).status_code == 200
     assert client.post("/edesc/batch-import", json={"by1_list": ["D371X4"]}).status_code == 200
+    spec_response = client.post(
+        "/spec/infer",
+        json={
+            "query": "ACME[SEP]desc[SEP]D371X4",
+            "customer": "ACME",
+            "form": "D371X4",
+        },
+    )
+    assert spec_response.status_code == 200
+    assert spec_response.json()["inferred_spec"] == "D100"
     assert client.post("/valve/parse", json={"model": "D371X4"}).status_code == 200
+
+
+def test_api_marks_reranked_candidates_as_full_vector_index(monkeypatch) -> None:
+    class RerankedRecommendationService(FakeRecommendationService):
+        def recommend(self, query, form_code="", customer="", top_k=5):
+            result = super().recommend(query, form_code, customer, top_k)
+            result["by1_match_level"] = "vector_reranked"
+            return result
+
+    monkeypatch.setattr(
+        api,
+        "get_recommendation_service",
+        lambda: RerankedRecommendationService(),
+    )
+    client = TestClient(api.app)
+
+    response = client.post("/edesc/search", json={"query": "unseen"})
+
+    assert response.status_code == 200
+    assert response.json()["recommendation_source"] == "full_vector_index"

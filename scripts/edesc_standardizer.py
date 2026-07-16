@@ -278,8 +278,8 @@ def _build_segment1(f: dict) -> str:
 
 def _build_segment2(f: dict) -> str:
     """Standardize raw product descriptions for the API search and write workflows."""
-    seat = f.get('seat_name', 'EPDM')
-    return f'{seat} SEAT'
+    seat = f.get('seat_name', 'UNKNOWN')
+    return f'{seat} SEAT' if seat != 'UNKNOWN' else ''
 
 
 def _build_segment3(f: dict) -> str:
@@ -287,9 +287,9 @@ def _build_segment3(f: dict) -> str:
     disc_map = {
         'SS316': 'SS316 DISC', 'SS304': 'SS304 DISC',
         'DI_EPDM': 'DI+EPDM DISC', 'DI_NBR': 'DI+NBR DISC',
-        'DI': 'DI DISC', 'CS': 'CS DISC', 'UNKNOWN': 'DI DISC',
+        'DI': 'DI DISC', 'CS': 'CS DISC',
     }
-    return disc_map.get(f.get('disc_material', 'UNKNOWN'), 'DI DISC')
+    return disc_map.get(f.get('disc_material', 'UNKNOWN'), '')
 
 
 def _build_segment4(f: dict) -> str:
@@ -412,6 +412,30 @@ def standardize_edesc(edesc: str) -> dict:
         },
         'features': features,
     }
+
+
+def standardize_edesc_for_by1(edesc: str) -> str:
+    """Return a structure-focused representation without product size."""
+    clean = preprocess(edesc)
+    if not re.search(r'\b(?:BFV|BV|BUTTERFLY|VALVE|CHECK)\b', clean):
+        clean = re.sub(r'\bDN\s*\d+(?:\.\d+)?\b', ' ', clean)
+        clean = re.sub(r'\b\d+(?:\.\d+)?\s*MM\b', ' ', clean)
+        clean = re.sub(r'\b\d+(?:\s+\d+/\d+)?\s*"', ' ', clean)
+        return re.sub(r'[_\W]+', ' ', clean, flags=re.UNICODE).strip()
+    result = standardize_edesc(edesc)
+    segments = result['segments']
+    return ','.join(
+        segment
+        for segment in [
+            segments['body'],
+            segments['seat'],
+            segments['disc'],
+            segments['actuation'],
+            segments['pressure'],
+            segments['extra'],
+        ]
+        if segment
+    )
 
 
 # ============================================================

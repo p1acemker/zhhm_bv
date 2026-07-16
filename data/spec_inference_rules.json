@@ -1,0 +1,268 @@
+{
+  "version": 1,
+  "source": {
+    "file": "history_orders.xlsx",
+    "input_rows": 24338,
+    "standard_spec_rows": 23497,
+    "date_min": "2021-08-11",
+    "date_max": "2024-12-20"
+  },
+  "criteria": {
+    "train_before": "2024-04-28",
+    "holdout_from": "2024-09-01",
+    "min_train_support": 20,
+    "min_train_purity": 1.0,
+    "min_validation_support": 5,
+    "min_validation_purity": 1.0,
+    "min_train_combined_purity": 1.0,
+    "min_train_combined_support": 20,
+    "min_validation_combined_purity": 1.0,
+    "min_validation_combined_support": 5
+  },
+  "windows": {
+    "train_rows": 18305,
+    "validation_rows": 3013,
+    "holdout_rows": 2179
+  },
+  "holdout_metrics": {
+    "prefix_covered": 255,
+    "prefix_coverage": 0.117,
+    "prefix_accuracy": 1.0,
+    "combined_covered": 254,
+    "combined_coverage": 0.1166,
+    "combined_accuracy": 1.0
+  },
+  "form_prefixes": {
+    "D23-1": {
+      "prefix": "B",
+      "train_support": 31,
+      "validation_support": 5,
+      "train_combined_support": 31,
+      "validation_combined_support": 5
+    },
+    "D371XK": {
+      "prefix": "B",
+      "train_support": 44,
+      "validation_support": 18,
+      "train_combined_support": 44,
+      "validation_combined_support": 18
+    },
+    "D371XK1": {
+      "prefix": "B",
+      "train_support": 28,
+      "validation_support": 7,
+      "train_combined_support": 28,
+      "validation_combined_support": 7
+    },
+    "D371XKL": {
+      "prefix": "B",
+      "train_support": 25,
+      "validation_support": 10,
+      "train_combined_support": 25,
+      "validation_combined_support": 10
+    },
+    "D381X241": {
+      "prefix": "B",
+      "train_support": 29,
+      "validation_support": 8,
+      "train_combined_support": 29,
+      "validation_combined_support": 8
+    },
+    "D381X4-BL": {
+      "prefix": "D",
+      "train_support": 28,
+      "validation_support": 8,
+      "train_combined_support": 28,
+      "validation_combined_support": 8
+    },
+    "D381X80": {
+      "prefix": "D",
+      "train_support": 457,
+      "validation_support": 70,
+      "train_combined_support": 457,
+      "validation_combined_support": 70
+    },
+    "D71X22": {
+      "prefix": "D",
+      "train_support": 64,
+      "validation_support": 17,
+      "train_combined_support": 63,
+      "validation_combined_support": 17
+    },
+    "D71XK12": {
+      "prefix": "B",
+      "train_support": 22,
+      "validation_support": 6,
+      "train_combined_support": 22,
+      "validation_combined_support": 6
+    },
+    "D71XK13": {
+      "prefix": "B",
+      "train_support": 28,
+      "validation_support": 7,
+      "train_combined_support": 28,
+      "validation_combined_support": 7
+    },
+    "D71XLV17": {
+      "prefix": "B",
+      "train_support": 52,
+      "validation_support": 5,
+      "train_combined_support": 52,
+      "validation_combined_support": 5
+    },
+    "D71XLV30-B": {
+      "prefix": "D",
+      "train_support": 29,
+      "validation_support": 9,
+      "train_combined_support": 29,
+      "validation_combined_support": 9
+    },
+    "D71XLV99": {
+      "prefix": "D",
+      "train_support": 53,
+      "validation_support": 10,
+      "train_combined_support": 53,
+      "validation_combined_support": 10
+    },
+    "D81X4-BL": {
+      "prefix": "D",
+      "train_support": 77,
+      "validation_support": 35,
+      "train_combined_support": 77,
+      "validation_combined_support": 35
+    },
+    "D81X702": {
+      "prefix": "N",
+      "train_support": 23,
+      "validation_support": 5,
+      "train_combined_support": 23,
+      "validation_combined_support": 5
+    },
+    "D81XE": {
+      "prefix": "D",
+      "train_support": 118,
+      "validation_support": 42,
+      "train_combined_support": 104,
+      "validation_combined_support": 40
+    },
+    "D81XE183": {
+      "prefix": "D",
+      "train_support": 22,
+      "validation_support": 8,
+      "train_combined_support": 22,
+      "validation_combined_support": 8
+    },
+    "D81XE4-A": {
+      "prefix": "D",
+      "train_support": 74,
+      "validation_support": 19,
+      "train_combined_support": 74,
+      "validation_combined_support": 19
+    },
+    "D81XT": {
+      "prefix": "D",
+      "train_support": 29,
+      "validation_support": 6,
+      "train_combined_support": 29,
+      "validation_combined_support": 6
+    },
+    "DH74XR1": {
+      "prefix": "B",
+      "train_support": 53,
+      "validation_support": 13,
+      "train_combined_support": 53,
+      "validation_combined_support": 13
+    },
+    "DH77X1": {
+      "prefix": "B",
+      "train_support": 32,
+      "validation_support": 7,
+      "train_combined_support": 28,
+      "validation_combined_support": 7
+    },
+    "DH77XNR1": {
+      "prefix": "B",
+      "train_support": 108,
+      "validation_support": 23,
+      "train_combined_support": 108,
+      "validation_combined_support": 23
+    },
+    "DH77XNR13": {
+      "prefix": "B",
+      "train_support": 35,
+      "validation_support": 6,
+      "train_combined_support": 35,
+      "validation_combined_support": 6
+    },
+    "DH77XR15": {
+      "prefix": "D",
+      "train_support": 20,
+      "validation_support": 8,
+      "train_combined_support": 20,
+      "validation_combined_support": 8
+    },
+    "XD371X174": {
+      "prefix": "D",
+      "train_support": 40,
+      "validation_support": 12,
+      "train_combined_support": 40,
+      "validation_combined_support": 12
+    },
+    "XD371X76": {
+      "prefix": "D",
+      "train_support": 186,
+      "validation_support": 27,
+      "train_combined_support": 186,
+      "validation_combined_support": 27
+    },
+    "XD381X187": {
+      "prefix": "D",
+      "train_support": 190,
+      "validation_support": 36,
+      "train_combined_support": 190,
+      "validation_combined_support": 36
+    },
+    "XD381X208": {
+      "prefix": "D",
+      "train_support": 114,
+      "validation_support": 22,
+      "train_combined_support": 114,
+      "validation_combined_support": 22
+    },
+    "XD381X73": {
+      "prefix": "D",
+      "train_support": 50,
+      "validation_support": 14,
+      "train_combined_support": 50,
+      "validation_combined_support": 14
+    },
+    "XD381X76": {
+      "prefix": "D",
+      "train_support": 152,
+      "validation_support": 15,
+      "train_combined_support": 152,
+      "validation_combined_support": 15
+    },
+    "XD381X86": {
+      "prefix": "D",
+      "train_support": 97,
+      "validation_support": 8,
+      "train_combined_support": 97,
+      "validation_combined_support": 8
+    },
+    "XD381XE39": {
+      "prefix": "D",
+      "train_support": 31,
+      "validation_support": 5,
+      "train_combined_support": 31,
+      "validation_combined_support": 5
+    },
+    "XD71X4": {
+      "prefix": "B",
+      "train_support": 70,
+      "validation_support": 10,
+      "train_combined_support": 70,
+      "validation_combined_support": 10
+    }
+  }
+}
