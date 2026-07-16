@@ -3,6 +3,7 @@
 
 import re
 from scripts.edesc_features import extract_features, preprocess
+from service.template_models import AttributeEvidence, DescriptionViews
 
 
 # ============================================================
@@ -435,6 +436,74 @@ def standardize_edesc_for_by1(edesc: str) -> str:
             segments['extra'],
         ]
         if segment
+    )
+
+
+def standardize_description_views(edesc: str) -> DescriptionViews:
+    """Build lossless structural and full views without inventing attributes."""
+    raw = "" if edesc is None else str(edesc)
+    normalized = preprocess(raw)
+    standardized = standardize_edesc(raw)
+    features = standardized["features"]
+    segments = standardized["segments"]
+    attributes: dict[str, AttributeEvidence] = {}
+
+    def add(field: str, value: object, evidence: object) -> None:
+        text = "" if value is None else str(value).strip()
+        if not text or text.upper() in {"UNKNOWN", "NONE", "NAN"}:
+            return
+        attributes[field] = AttributeEvidence(
+            value=text.upper(),
+            source="query",
+            confidence=1.0,
+            evidence=str(evidence).strip(),
+        )
+
+    body_material = ""
+    upper = normalized.upper()
+    for marker, value in (
+        ("DUCTILE IRON", "DI"),
+        ("CAST IRON", "CI"),
+        ("CARBON STEEL", "CS"),
+        ("SS316", "SS316"),
+        ("SS304", "SS304"),
+    ):
+        if marker in upper:
+            body_material = value
+            break
+    add("body_material", body_material, body_material)
+
+    connection_map = {
+        "LUG_WAFER": "LUG WAFER",
+        "GROOVED": "GROOVED",
+        "FLANGED": "FLANGED",
+        "WAFER": "WAFER",
+        "LUG": "LUG",
+        "THREADED": "THREADED",
+    }
+    connection = connection_map.get(str(features.get("connection", "")))
+    add("connection", connection, connection)
+    add("seat_material", features.get("seat_name"), segments.get("seat", ""))
+    add("closure_material", features.get("disc_material"), segments.get("disc", ""))
+    add("actuation", features.get("actuation"), segments.get("actuation", ""))
+    add("pressure", segments.get("pressure"), segments.get("pressure", ""))
+    add("size", segments.get("size"), segments.get("size", ""))
+
+    family = ""
+    if re.search(r"\b(?:BFV|BUTTERFLY)\b", upper):
+        family = "butterfly"
+    elif re.search(r"\b(?:CHECK|NRV)\b", upper):
+        family = "check"
+    elif re.search(r"\b(?:GATE|GV)\b", upper):
+        family = "gate"
+    add("family", family, family)
+
+    return DescriptionViews(
+        raw_description=raw,
+        normalized_description=normalized,
+        structural_description=standardize_edesc_for_by1(raw),
+        full_description=standardized["standardized"] or normalized,
+        attributes=attributes,
     )
 
 
