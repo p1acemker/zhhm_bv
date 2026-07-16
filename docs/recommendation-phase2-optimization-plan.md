@@ -412,3 +412,18 @@ model_version/index_version
 
 建议下一次实现从 2A 开始，先交付可重复构建的全量向量索引和
 candidate recall@50 回测；只有召回达到 99% 后，再投入 reranker 调权。
+
+## By1 template-assisted extension
+
+The template-assisted path is intentionally separate from the high-confidence historical path:
+
+```text
+raw description
+  -> structural/full views
+  -> by1-scoped template retrieval
+  -> distinct by1 aggregation
+  -> specification profile and size compatibility
+  -> shadow comparison
+```
+
+Build templates only from the training window before `2024-04-28`. Keep `BY1_TEMPLATE_MODE=off` in production until shadow metrics show no regression for exact historical matches and meet the by1, specification, joint-accuracy, coverage, and high-confidence gates. A template failure must return control to the existing historical/vector path.
