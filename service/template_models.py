@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
+import numpy as np
+
 
 @dataclass(frozen=True)
 class AttributeEvidence:
@@ -29,3 +31,32 @@ class DescriptionViews:
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible representation for index builders."""
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class TemplateMember:
+    """One historical description assigned to a by1 template cluster."""
+
+    point_id: str
+    by1: str
+    views: DescriptionViews
+    structural_vector: np.ndarray
+    form_code: str
+    spec: str
+    parsed_size: str
+    support: int
+
+
+@dataclass(frozen=True)
+class TemplateCluster:
+    """A deterministic, by1-scoped cluster of historical descriptions."""
+
+    template_id: str
+    by1: str
+    cluster_id: int
+    member_ids: tuple[str, ...]
+    representative_point_id: str
+    structural_signature: str
+    cohesion: float
+    outlier_count: int
+    template_status: str = "clustered"
