@@ -92,10 +92,23 @@ def get_recommendation_service():
     """Return the lazily initialized by1/form-code recommendation service."""
     global _recommendation_service
     if _recommendation_service is None:
-        from config import RECOMMENDATION_INDEX_PATH, RECOMMENDATION_MODE
+        from config import (
+            BY1_TEMPLATE_MODE,
+            RECOMMENDATION_INDEX_PATH,
+            RECOMMENDATION_MODE,
+        )
         from service import RecommendationService
         from service.candidate_retriever import CandidateRetriever
         from service.candidate_reranker import CandidateReranker, RerankerClient
+
+        template_retriever = None
+        if BY1_TEMPLATE_MODE in {"shadow", "on"}:
+            try:
+                from service.by1_template_retriever import By1TemplateRetriever
+
+                template_retriever = By1TemplateRetriever.from_config()
+            except Exception as exc:
+                logger.warning("By1 template retriever unavailable: %s", exc)
 
         retriever = (
             CandidateRetriever.from_config()
@@ -113,6 +126,7 @@ def get_recommendation_service():
             reranker=CandidateReranker(reranker_client)
             if reranker_client is not None
             else None,
+            template_retriever=template_retriever,
         )
         logger.info("RecommendationService initialized")
     return _recommendation_service
@@ -234,6 +248,8 @@ async def search_edesc(request: SearchRequest):
         "data": results,
         "recommendation_source": recommendation_source,
         "by1_match_level": by1_match_level,
+        "template_candidates": recommendation.get("template_candidates", []),
+        "template_match_level": recommendation.get("template_match_level", "none"),
         "inferred_spec": recommendation["inferred_spec"],
         "spec_confidence": recommendation["spec_confidence"],
         "spec_confidence_score": recommendation["spec_confidence_score"],
