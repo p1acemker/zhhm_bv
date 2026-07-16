@@ -195,6 +195,39 @@ def build_template_index(
     clusters = build_template_clusters(members)
     profiles = build_spec_profiles(members, clusters)
     member_by_id = {member.point_id: member for member in members}
+    profiles_by_template: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for profile in profiles:
+        profiles_by_template[str(profile["template_id"])].append(profile)
+    templates = []
+    for cluster in clusters:
+        representative = member_by_id[cluster.representative_point_id]
+        templates.append(
+            {
+                "template_id": cluster.template_id,
+                "by1": cluster.by1,
+                "cluster_id": cluster.cluster_id,
+                "structural_signature": cluster.structural_signature,
+                "representative_description": representative.views.raw_description,
+                "representative_vector": representative.structural_vector.tolist(),
+                "attributes": {
+                    field: asdict(evidence)
+                    for field, evidence in representative.views.attributes.items()
+                    if field != "size"
+                },
+                "supported_form_codes": sorted(
+                    {
+                        member_by_id[point_id].form_code
+                        for point_id in cluster.member_ids
+                        if member_by_id[point_id].form_code
+                    }
+                ),
+                "spec_profiles": profiles_by_template.get(cluster.template_id, []),
+                "support": sum(member_by_id[point_id].support for point_id in cluster.member_ids),
+                "cohesion": cluster.cohesion,
+                "outlier_count": cluster.outlier_count,
+                "template_status": cluster.template_status,
+            }
+        )
     return {
         "version": 1,
         "train_before": cutoff,
@@ -209,10 +242,12 @@ def build_template_index(
                 "spec": member.spec,
                 "parsed_size": member.parsed_size,
                 "support": member.support,
+                "structural_vector": member.structural_vector.tolist(),
             }
             for member in members
         ],
         "clusters": [asdict(cluster) for cluster in clusters],
+        "templates": templates,
         "spec_profiles": profiles,
     }
 

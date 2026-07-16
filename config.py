@@ -64,3 +64,10 @@ EDESC_TEMPLATE_ALIAS = os.getenv(
     "edesc_templates_current",
 )
 EDESC_TEMPLATE_CANDIDATES = int(os.getenv("EDESC_TEMPLATE_CANDIDATES", "100"))
+BY1_TEMPLATE_MODE = os.getenv("BY1_TEMPLATE_MODE", "off").lower()
+BY1_TEMPLATE_INDEX_PATH = os.getenv(
+    "BY1_TEMPLATE_INDEX_PATH",
+    os.path.join(BASE_DIR, "data", "by1_template_index.json"),
+)
+BY1_TEMPLATE_COLLECTION = os.getenv("BY1_TEMPLATE_COLLECTION", "by1_templates_v1")
+BY1_TEMPLATE_CANDIDATES = int(os.getenv("BY1_TEMPLATE_CANDIDATES", "100"))
